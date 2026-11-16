@@ -278,20 +278,21 @@ textarea:focus-visible {
 .live-console {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   background: var(--bg-recessed);
   padding: 4px;
   border-radius: var(--radius-md);
   box-shadow: inset 0 1px 2px hsla(214, 28%, 10%, 0.06);
+  flex-shrink: 0;
 }
 
 .direction-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 7px;
+  padding: 7px 12px;
   border-radius: 9px;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--ink-secondary);
@@ -340,10 +341,10 @@ textarea:focus-visible {
 .mic-trigger-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: 7px;
+  padding: 7px 14px;
   border-radius: 9px;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 700;
   background: var(--ink-primary);
   color: var(--bg-sheet);
@@ -389,51 +390,84 @@ textarea:focus-visible {
   }
 }
 
-.turn-cut-btn {
+.checkpoint-trigger-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 7px 11px;
-  border-radius: 8px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--ink-secondary);
-  background: var(--bg-sheet);
-  box-shadow: 0 1px 2px hsla(214, 25%, 10%, 0.05);
-  transition: background-color 0.15s ease, color 0.15s ease;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 9px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--ochre-ink);
+  background: var(--ochre-surface);
+  box-shadow: 0 1px 3px hsla(34, 60%, 16%, 0.08),
+    inset 0 1px 0 hsla(0, 0%, 100%, 0.65);
+  transition: transform 0.14s var(--ease-snappy), background-color 0.15s ease,
+    box-shadow 0.15s ease, opacity 0.15s ease;
   white-space: nowrap;
 }
 
-.turn-cut-btn:hover:not(:disabled) {
-  background: var(--bg-elevated);
-  color: var(--ink-primary);
+[data-theme='dark'] .checkpoint-trigger-btn {
+  box-shadow: 0 2px 6px hsla(0, 0%, 0%, 0.25),
+    inset 0 1px 0 hsla(42, 60%, 85%, 0.08);
 }
 
-.turn-cut-btn:disabled {
+.checkpoint-trigger-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: var(--ochre-highlight);
+}
+
+.checkpoint-trigger-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.checkpoint-trigger-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.checkpoint-trigger-btn .dir-shortcut {
+  background: hsla(0, 0%, 100%, 0.55);
+  color: var(--ochre-ink);
+}
+
+[data-theme='dark'] .checkpoint-trigger-btn .dir-shortcut {
+  background: hsla(0, 0%, 0%, 0.28);
+  color: var(--ochre-ink);
+}
+
+.spin-icon {
+  animation: spin360 0.9s linear infinite;
+}
+
+@keyframes spin360 {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Header Right Utility Controls */
 .utility-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .util-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 11px;
+  gap: 5px;
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
-  font-size: 0.8rem;
+  font-size: 0.79rem;
   font-weight: 600;
   color: var(--ink-secondary);
   background: transparent;
   border: 1px solid var(--line-hairline);
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .util-btn:hover {
@@ -460,15 +494,18 @@ textarea:focus-visible {
   background: var(--bg-recessed);
   border-radius: var(--radius-sm);
   padding: 2px;
+  flex-shrink: 0;
 }
 
 .scale-btn {
-  padding: 5px 8px;
-  font-size: 0.75rem;
+  padding: 5px 7px;
+  font-size: 0.74rem;
   font-weight: 600;
   color: var(--ink-tertiary);
   border-radius: 6px;
   transition: all 0.14s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .scale-btn.active {
@@ -802,7 +839,20 @@ textarea:focus-visible {
 .utterance-meta-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.newest-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  background: var(--ink-primary);
+  color: var(--bg-sheet);
 }
 
 .utterance-time {
@@ -1470,18 +1520,89 @@ textarea:focus-visible {
 }
 
 /* ==========================================================================
-   Responsive Tablet & Mobile Adaptations
+   중간 정리 (Checkpoint Summary & Suggested Interpretation Script)
    ========================================================================== */
-@media (max-width: 1120px) {
-  .brand-subtitle {
-    display: none;
-  }
+.checkpoint-highlight-card {
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sheet);
+}
+
+.sub-eyebrow {
+  font-size: 0.77rem;
+  font-weight: 700;
+  color: var(--ink-secondary);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+
+.suggested-script-card {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  margin-top: 6px;
+}
+
+.suggested-script-card.dir-en {
+  background: var(--en-surface);
+  color: var(--en-ink-strong);
+}
+
+.suggested-script-card.dir-ko {
+  background: var(--ko-surface);
+  color: var(--ko-ink-strong);
+}
+
+.suggested-script-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  font-weight: 700;
+  opacity: 0.88;
+  margin-bottom: 8px;
+}
+
+.suggested-script-body {
+  font-size: calc(1.04rem * var(--ui-scale));
+  line-height: 1.68;
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.raw-source-preview {
+  margin: 8px 0 0;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-recessed);
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: calc(0.84rem * var(--ui-scale));
+  line-height: 1.58;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line-hairline);
+}
+
+/* ==========================================================================
+   Responsive Laptop, Tablet & Mobile Adaptations
+   ========================================================================== */
+@media (max-width: 1560px) {
   .dir-shortcut {
     display: none;
   }
 }
 
-@media (max-width: 920px) {
+@media (max-width: 1360px) {
+  .brand-subtitle {
+    display: none;
+  }
+}
+
+@media (max-width: 1240px) {
   .desk-header {
     flex-wrap: wrap;
     padding: 10px 14px;
@@ -1490,6 +1611,13 @@ textarea:focus-visible {
   .live-console {
     order: 3;
     width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 920px) {
+  .live-console {
     justify-content: space-between;
   }
 
@@ -1516,3 +1644,4 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+

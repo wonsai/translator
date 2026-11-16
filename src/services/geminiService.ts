@@ -1,5 +1,6 @@
 import { findInstantGlossaryMatches } from '../data/ibGlossary'
 import type {
+  CheckpointSummaryRecord,
   Direction,
   GeminiModelOption,
   GlossaryItem,
@@ -553,5 +554,171 @@ Reference IB terms: ${glossaryList}`
   return {
     transcript: String(parsed.transcript || '').trim(),
     translation: String(parsed.translation || '').trim(),
+  }
+}
+
+/**
+ * [중간 정리] 화자의 누적 대화를 요약하고 즉시 전달 가능한 통역 내용을 생성합니다.
+ */
+export async function generateCheckpointInterpretation(params: {
+  apiKey: string
+  selectedModel: string
+  direction: Direction
+  sourceTranscript: string
+  turnCount: number
+  glossary: GlossaryItem[]
+}): Promise<CheckpointSummaryRecord> {
+  const { apiKey, selectedModel, direction, sourceTranscript, turnCount, glossary } = params
+  const trimmedKey = apiKey.trim()
+  if (!trimmedKey) {
+    throw new Error('상단 [API 키 연동]에서 Gemini API 키를 먼저 저장해 주세요.')
+  }
+
+  let model = await resolveActiveModel(trimmedKey, selectedModel)
+  const glossaryContext = buildGlossaryPromptContext(glossary, sourceTranscript)
+  const instantHits = findInstantGlossaryMatches(sourceTranscript, direction, glossary)
+
+  const targetLangLabel =
+    direction === 'EN_TO_KO' ? '한국어(Korean)' : '영어(English)'
+  const sourceLangLabel =
+    direction === 'EN_TO_KO' ? '영어(English)' : '한국어(Korean)'
+
+  const systemPrompt = `당신은 제주 표선고등학교(공립 IB 월드스쿨) 공식 프로그램 평가 방문 현장의 수석 순차 통역사입니다.
+통역사가 [중간 정리] 버튼을 눌렀습니다. 지금까지 화자가 말한 ${sourceLangLabel} 발화 내용을 군더더기·반복 없이 명쾌하게 요약하고, 통역사가 청중에게 바로 전달할 수 있는 품격 있고 자연스러운 ${targetLangLabel} 요약 통역문을 제시하세요.
+
+작성 원칙:
+1. headline: 지금까지 화자가 말한 핵심 주제를 1줄로 요약 (한국어, 40자 이내).
+2. speakerSummaryBullets (2~5개): 화자의 발언 요지를 논리 순서대로 간결한 한국어 개조식 문장으로 정리.
+3. suggestedInterpretation:
+   - 화자의 발화 핵심을 빠짐없이 담되 구어체 군더더기·중복은 정돈하여, 통역사가 현장에서 바로 전달할 수 있도록 자연스럽고 정중한 ${targetLangLabel} 구어 통역문으로 작성하세요.
+   - ${
+     direction === 'EN_TO_KO'
+       ? '표선고 교직원·학생들이 즉시 이해할 수 있도록 명확하고 자연스러운 한국어 경어체(~했습니다, ~하시겠습니까 등)로 작성하세요.'
+       : 'IB 방문 평가단(Visiting Team)에게 전달하기에 적합한 명확하고 품격 있는 국제 교육 현장 영어(clear, natural professional English)로 작성하세요.'
+   }
+4. keyTerms (4~8개): 핵심 용어 및 표현을 source(${sourceLangLabel}) → target(${targetLangLabel}) 쌍으로 정리.
+5. keyFigures: 발화 중 언급된 수치, 연도, 인원, 횟수, 고유명사 체크리스트 (없으면 []).
+
+[표선고·IB 월드스쿨 공식 용어집 기준]
+${glossaryContext}`
+
+  const responseSchema = {
+    type: 'OBJECT',
+    properties: {
+      headline: { type: 'STRING' },
+      speakerSummaryBullets: {
+        type: 'ARRAY',
+        items: { type: 'STRING' },
+      },
+      suggestedInterpretation: { type: 'STRING' },
+      keyTerms: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            source: { type: 'STRING' },
+            target: { type: 'STRING' },
+            nuance: { type: 'STRING' },
+          },
+          required: ['source', 'target'],
+        },
+      },
+      keyFigures: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            figure: { type: 'STRING' },
+            context: { type: 'STRING' },
+          },
+          required: ['figure', 'context'],
+        },
+      },
+    },
+    required: [
+      'headline',
+      'speakerSummaryBullets',
+      'suggestedInterpretation',
+      'keyTerms',
+      'keyFigures',
+    ],
+  }
+
+  const executeCall = async (targetModel: string): Promise<Response> =>
+    fetch(`${GEMINI_API_BASE}/models/${encodeURIComponent(targetModel)}:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': trimmedKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: sourceTranscript }],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema,
+        },
+      }),
+    })
+
+  let response = await executeCall(model)
+  if (response.status === 404) {
+    cachedResolvedAutoModel = null
+    const { recommendedModel } = await verifyAndDiscoverModels(trimmedKey)
+    model = recommendedModel
+    response = await executeCall(model)
+  }
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => null)
+    throw new Error(
+      errBody?.error?.message || `중간 정리 생성에 실패했습니다 (HTTP ${response.status}).`
+    )
+  }
+
+  const data = await response.json()
+  const parts = data?.candidates?.[0]?.content?.parts || []
+  const jsonPart = parts.find((p: { text?: string; thought?: boolean }) => p.text && !p.thought)
+  const parsed = JSON.parse(jsonPart?.text || '{}')
+
+  const mergedTerms: KeyTermPair[] = [...instantHits]
+  const existingTargets = new Set(instantHits.map((h) => h.target.toLowerCase()))
+
+  if (Array.isArray(parsed.keyTerms)) {
+    for (const term of parsed.keyTerms) {
+      if (!term?.source || !term?.target) continue
+      const normTarget = String(term.target).toLowerCase()
+      if (!existingTargets.has(normTarget)) {
+        existingTargets.add(normTarget)
+        mergedTerms.push({
+          source: String(term.source),
+          target: String(term.target),
+          nuance: term.nuance ? String(term.nuance) : undefined,
+          fromGlossary: false,
+        })
+      }
+    }
+  }
+
+  return {
+    id: `ckpt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: Date.now(),
+    direction,
+    headline: String(parsed.headline || '대화 중간 정리'),
+    speakerSummaryBullets: Array.isArray(parsed.speakerSummaryBullets)
+      ? parsed.speakerSummaryBullets.map((s: unknown) => String(s)).slice(0, 6)
+      : [],
+    suggestedInterpretation: String(parsed.suggestedInterpretation || '').trim(),
+    keyTerms: mergedTerms.slice(0, 10),
+    keyFigures: Array.isArray(parsed.keyFigures) ? parsed.keyFigures.slice(0, 6) : [],
+    sourceTranscript,
+    turnCount,
   }
 }

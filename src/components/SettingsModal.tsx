@@ -32,6 +32,9 @@ export function SettingsModal({
   const [enableInterimTranslation, setEnableInterimTranslation] = useState(
     settings.enableInterimTranslation
   )
+  const [autoDownloadCheckpointTxt, setAutoDownloadCheckpointTxt] = useState(
+    settings.autoDownloadCheckpointTxt
+  )
 
   const [isVerifying, setIsVerifying] = useState(false)
   const [verifyMessage, setVerifyMessage] = useState<{
@@ -56,8 +59,9 @@ export function SettingsModal({
         selectedModel,
         audioEngine,
         enableInterimTranslation,
+        autoDownloadCheckpointTxt,
       })
-      setVerifyMessage({ type: 'warn', text: 'API 키가 비워진 상태로 저장되었습니다.' })
+      setVerifyMessage({ type: 'warn', text: '설정이 저장되었습니다 (API 키는 비어 있음).' })
       return
     }
 
@@ -80,6 +84,7 @@ export function SettingsModal({
           selectedModel: nextModel,
           audioEngine,
           enableInterimTranslation,
+          autoDownloadCheckpointTxt,
         },
         models
       )
@@ -217,7 +222,7 @@ export function SettingsModal({
           )}
         </div>
 
-        <div className="form-field">
+        <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label
             style={{
               display: 'flex',
@@ -225,6 +230,7 @@ export function SettingsModal({
               gap: 8,
               fontWeight: 600,
               cursor: 'pointer',
+              marginBottom: 0,
             }}
           >
             <input
@@ -233,6 +239,24 @@ export function SettingsModal({
               onChange={(e) => setEnableInterimTranslation(e.target.checked)}
             />
             <span>화자가 말하는 도중에도 실시간 중간 번역을 미리 갱신하기</span>
+          </label>
+
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontWeight: 600,
+              cursor: 'pointer',
+              marginBottom: 0,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={autoDownloadCheckpointTxt}
+              onChange={(e) => setAutoDownloadCheckpointTxt(e.target.checked)}
+            />
+            <span>[중간 정리] 실행 시 내 PC에 .txt 파일로 즉시 자동 다운로드하기</span>
           </label>
         </div>
 

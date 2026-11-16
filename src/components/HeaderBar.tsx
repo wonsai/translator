@@ -1,8 +1,10 @@
 import {
   BookOpen,
   CheckCircle2,
-  CornerDownLeft,
+  FileCheck2,
+  FolderOpen,
   KeyRound,
+  Loader2,
   Mic,
   MicOff,
   Moon,
@@ -13,16 +15,19 @@ import type { Direction, FontScaleLevel } from '../types'
 interface HeaderBarProps {
   direction: Direction
   isListening: boolean
-  canFinalizeTurn: boolean
+  hasAnyTurns: boolean
+  isGeneratingCheckpoint: boolean
+  checkpointCount: number
   hasApiKey: boolean
   glossaryCount: number
   theme: 'light' | 'dark'
   fontScale: FontScaleLevel
   onSwitchDirection: (dir: Direction) => void
   onToggleListening: () => void
-  onFinalizeTurn: () => void
+  onTriggerCheckpoint: () => void
   onChangeFontScale: (scale: FontScaleLevel) => void
   onToggleTheme: () => void
+  onOpenCheckpoints: () => void
   onOpenGlossary: () => void
   onOpenSettings: () => void
 }
@@ -37,16 +42,19 @@ const SCALE_OPTIONS: Array<{ value: FontScaleLevel; label: string }> = [
 export function HeaderBar({
   direction,
   isListening,
-  canFinalizeTurn,
+  hasAnyTurns,
+  isGeneratingCheckpoint,
+  checkpointCount,
   hasApiKey,
   glossaryCount,
   theme,
   fontScale,
   onSwitchDirection,
   onToggleListening,
-  onFinalizeTurn,
+  onTriggerCheckpoint,
   onChangeFontScale,
   onToggleTheme,
+  onOpenCheckpoints,
   onOpenGlossary,
   onOpenSettings,
 }: HeaderBarProps) {
@@ -64,8 +72,8 @@ export function HeaderBar({
         </div>
       </div>
 
-      {/* Central Live Direction & Mic Console */}
-      <div className="live-console" role="group" aria-label="실시간 통역 방향 및 마이크 제어">
+      {/* Central Live Direction, Mic & 중간 정리 Console */}
+      <div className="live-console" role="group" aria-label="실시간 통역 방향, 마이크 및 중간 정리 제어">
         <button
           id="btn-dir-en-ko"
           type="button"
@@ -106,21 +114,31 @@ export function HeaderBar({
           ) : (
             <>
               <Mic size={15} />
-              <span>실시간 듣기 시작</span>
+              <span>실시간 듣기</span>
             </>
           )}
         </button>
 
         <button
-          id="btn-finalize-turn"
+          id="btn-mid-summary"
           type="button"
-          className="turn-cut-btn"
-          disabled={!canFinalizeTurn}
-          onClick={onFinalizeTurn}
-          title="현재 발화 구간을 끊고 AI 핵심 요약을 즉시 정리합니다 (단축키 Enter)"
+          className="checkpoint-trigger-btn"
+          disabled={!hasAnyTurns || isGeneratingCheckpoint}
+          onClick={onTriggerCheckpoint}
+          title="지금까지 화자가 말한 대화를 요약해 통역 내용을 제시하고 자동저장 및 PC txt 파일로 저장합니다 (단축키 Alt+S)"
         >
-          <CornerDownLeft size={14} />
-          <span>구간 완료</span>
+          {isGeneratingCheckpoint ? (
+            <>
+              <Loader2 size={15} className="spin-icon" />
+              <span>중간 정리 중...</span>
+            </>
+          ) : (
+            <>
+              <FileCheck2 size={15} />
+              <span>중간 정리</span>
+              <span className="dir-shortcut">Alt+S</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -152,13 +170,24 @@ export function HeaderBar({
         </button>
 
         <button
+          id="btn-open-checkpoints"
+          type="button"
+          className="util-btn"
+          onClick={onOpenCheckpoints}
+          title="자동 저장된 중간 정리 기록을 보거나 PC의 txt 파일을 불러옵니다"
+        >
+          <FolderOpen size={15} />
+          <span>기록 불러오기 ({checkpointCount})</span>
+        </button>
+
+        <button
           id="btn-open-glossary"
           type="button"
           className="util-btn"
           onClick={onOpenGlossary}
         >
           <BookOpen size={15} />
-          <span>IB 용어집 ({glossaryCount})</span>
+          <span>IB 용어 ({glossaryCount})</span>
         </button>
 
         <button

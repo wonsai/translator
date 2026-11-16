@@ -1,4 +1,5 @@
 import {
+  ArrowUp,
   Check,
   Copy,
   Download,
@@ -9,7 +10,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { SAMPLE_EVALUATION_SCENARIOS, type SampleScenario } from '../data/ibGlossary'
 import type { AudioEngineMode, Direction, UtteranceTurn } from '../types'
 
@@ -51,15 +52,16 @@ export function TranscriptStream({
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
-  // Auto-scroll smoothly when new speech arrives
+  // Reverse chronological order: newest utterance ALWAYS appears at the very top!
+  const newestFirstTurns = useMemo(() => [...turns].reverse(), [turns])
+  const newestTurnId = newestFirstTurns[0]?.id
+
+  // Keep scroll anchored at the top when a new utterance starts
   useEffect(() => {
     const el = scrollContainerRef.current
-    if (!el) return
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 180
-    if (nearBottom || isListening) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [turns, isListening])
+    if (!el || !newestTurnId) return
+    el.scrollTop = 0
+  }, [newestTurnId])
 
   const handleManualFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -76,25 +78,22 @@ export function TranscriptStream({
     window.setTimeout(() => setCopiedId(null), 1500)
   }
 
-  const handleExportMarkdown = () => {
+  const handleExportTxtLog = () => {
     if (!turns.length) return
-    const header = `# 표선고등학교 IB 평가 방문 통역 기록\n생성 일시: ${new Date().toLocaleString('ko-KR')}\n\n---\n\n`
+    const header = `표선고등학교 IB 평가 방문 전체 받아쓰기·번역 기록\n생성 일시: ${new Date().toLocaleString('ko-KR')}\n============================================================\n\n`
     const body = turns
       .map((t, i) => {
         const time = new Date(t.createdAt).toLocaleTimeString('ko-KR')
         const dirLabel = t.direction === 'EN_TO_KO' ? '영어 → 한국어 (평가단)' : '한국어 → 영어 (학교측)'
-        const summaryLines = t.briefing?.bulletPoints
-          ?.map((b) => `  - ${b.koSummary} → *${b.targetCue}*`)
-          .join('\n')
-        return `### ${i + 1}. [${dirLabel}] (${time})\n- **받아쓰기 원문**: ${t.sourceText}\n- **실시간 번역**: ${t.translatedText || '-'}${summaryLines ? `\n- **핵심 통역 노트**:\n${summaryLines}` : ''}`
+        return `[${i + 1}] ${dirLabel} (${time})\n원문: ${t.sourceText}\n번역: ${t.translatedText || '-'}`
       })
-      .join('\n\n')
+      .join('\n\n------------------------------------------------------------\n\n')
 
-    const blob = new Blob([header + body], { type: 'text/markdown;charset=utf-8' })
+    const blob = new Blob(['\uFEFF' + header + body], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `표선고_IB평가방문_통역기록_${new Date().toISOString().slice(0, 10)}.md`
+    link.download = `표선고_전체대화기록_${new Date().toISOString().slice(0, 10)}.txt`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -108,12 +107,14 @@ export function TranscriptStream({
     <section
       className={`desk-pane ${mobileHidden ? 'mobile-hidden' : ''}`}
       id="pane-transcript-stream"
-      aria-label="실시간 받아쓰기 및 직독 번역"
+      aria-label="실시간 받아쓰기 및 직독 번역 (최신순)"
     >
       <div className="pane-header">
         <div className="pane-title-group">
           <h2>실시간 받아쓰기 & 직독 번역</h2>
-          <span className="pane-caption">원문 아래에 반대 언어 번역이 실시간 표시됩니다</span>
+          <span className="pane-caption" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <ArrowUp size={12} /> 새로운 발화가 항상 맨 위에 표시됩니다
+          </span>
         </div>
         <div className="pane-actions">
           <button
@@ -130,11 +131,11 @@ export function TranscriptStream({
             type="button"
             className="mini-btn"
             disabled={turns.length === 0}
-            onClick={handleExportMarkdown}
-            title="전체 받아쓰기·번역·요약 기록을 마크다운 파일로 저장합니다"
+            onClick={handleExportTxtLog}
+            title="전체 받아쓰기·번역 원문을 .txt 파일로 내보냅니다"
           >
             <Download size={13} />
-            <span>기록 저장</span>
+            <span>전체 .txt</span>
           </button>
           <button
             id="btn-clear-turns"
@@ -142,7 +143,7 @@ export function TranscriptStream({
             className="mini-btn"
             disabled={turns.length === 0}
             onClick={onClearAll}
-            title="현재 세션 기록 비우기"
+            title="현재 세션 받아쓰기 목록 비우기 (중간 정리 보관함은 유지됩니다)"
           >
             <Trash2 size={13} />
           </button>
@@ -164,9 +165,9 @@ export function TranscriptStream({
           <span>
             {isListening
               ? direction === 'EN_TO_KO'
-                ? '영어 발화 실시간 수신 중 (English → 한국어)'
-                : '한국어 발화 실시간 수신 중 (한국어 → English)'
-              : '대기 중 · 상단 [실시간 듣기 시작] 또는 Space 키를 누르세요'}
+                ? '영어 발화 실시간 수신 중 (맨 위에 실시간 표시)'
+                : '한국어 발화 실시간 수신 중 (맨 위에 실시간 표시)'
+              : '대기 중 · 상단 [실시간 듣기] 또는 Space 키를 누르세요'}
           </span>
         </div>
 
@@ -210,18 +211,18 @@ export function TranscriptStream({
         </div>
       )}
 
-      {/* Main Utterance Feed */}
+      {/* Main Utterance Feed (Newest Utterance First at Top!) */}
       <div className="transcript-scroll" ref={scrollContainerRef}>
-        {turns.length === 0 ? (
+        {newestFirstTurns.length === 0 ? (
           <div className="empty-desk-state">
             <div className="empty-desk-icon">
               <Mic size={22} />
             </div>
             <h3>실시간 한·영 / 영·한 받아쓰기 준비 완료</h3>
             <p>
-              평가단이 영어로 질문할 때는 <strong>영 → 한 듣기</strong>를, 표선고 교원·학생이
-              한국어로 답변할 때는 <strong>한 → 영 듣기</strong>를 선택하세요. 원문 바로 아래에
-              실시간 번역이 표시되고, 우측에는 통역용 핵심 요점과 반대 언어 단어장이 정리됩니다.
+              새로운 발화는 항상 <strong>화면 맨 위</strong>에 생성됩니다. 화자의 이야기가 어느 정도
+              진행되었을 때 상단 <strong>[중간 정리]</strong> 버튼을 누르면 대화 요약과 통역 제시문이
+              정리되고 내 PC에 <code>.txt</code> 파일로 자동 저장됩니다.
             </p>
             <div className="shortcut-hints">
               <span>
@@ -234,12 +235,13 @@ export function TranscriptStream({
                 <kbd>Space</kbd> 마이크 시작/정지
               </span>
               <span>
-                <kbd>Enter</kbd> 발화 구간 완료
+                <kbd>Alt+S</kbd> 중간 정리 · txt 저장
               </span>
             </div>
           </div>
         ) : (
-          turns.map((turn) => {
+          newestFirstTurns.map((turn, idx) => {
+            const isNewest = idx === 0
             const isSelected = turn.id === selectedTurnId
             const isEn = turn.direction === 'EN_TO_KO'
             const timeStr = new Date(turn.createdAt).toLocaleTimeString('ko-KR', {
@@ -256,6 +258,7 @@ export function TranscriptStream({
               >
                 <div className="utterance-meta">
                   <div className="utterance-meta-left">
+                    {isNewest && <span className="newest-badge">최신 발화</span>}
                     <span className={`direction-pill ${isEn ? 'en' : 'ko'}`}>
                       {isEn ? '영어 발화 → 한국어' : '한국어 발화 → 영어'}
                     </span>
@@ -339,8 +342,8 @@ export function TranscriptStream({
           onChange={(e) => setManualText(e.target.value)}
           placeholder={
             direction === 'EN_TO_KO'
-              ? '영어 문장을 직접 입력해 번역·핵심 요약을 테스트하거나 보충할 수 있습니다...'
-              : '한국어 문장을 직접 입력해 영문 통역 핵심 표현·요약을 바로 확인할 수 있습니다...'
+              ? '영어 문장을 직접 입력하면 맨 위에 새 발화로 추가됩니다...'
+              : '한국어 문장을 직접 입력하면 맨 위에 새 발화로 추가됩니다...'
           }
         />
         <button

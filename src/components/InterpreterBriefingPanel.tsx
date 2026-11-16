@@ -1,55 +1,95 @@
 import {
   Bookmark,
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
+  Download,
+  FileCheck2,
+  FolderOpen,
   Hash,
   Layers,
   ListChecks,
+  MessageSquareQuote,
   Pin,
   Sparkles,
   X,
 } from 'lucide-react'
 import { useState } from 'react'
-import type { Direction, InterpreterBriefing, KeyTermPair, UtteranceTurn } from '../types'
+import type {
+  CheckpointSummaryRecord,
+  Direction,
+  InterpreterBriefing,
+  KeyTermPair,
+  UtteranceTurn,
+} from '../types'
+import { downloadCheckpointTxtFile, formatCheckpointToTxt } from '../utils/checkpointTxt'
+
+export type RightPanelMode = 'checkpoint' | 'single' | 'context'
 
 interface InterpreterBriefingPanelProps {
+  panelMode: RightPanelMode
   activeTurn: UtteranceTurn | null
+  activeCheckpoint: CheckpointSummaryRecord | null
   turnsCount: number
   contextBriefing: InterpreterBriefing | null
   isGeneratingContextBriefing: boolean
+  isGeneratingCheckpoint: boolean
   pinnedTerms: KeyTermPair[]
   hasApiKey: boolean
+  saveNotice: string | null
   mobileHidden?: boolean
+  onChangePanelMode: (mode: RightPanelMode) => void
   onTogglePinTerm: (term: KeyTermPair) => void
   onClearPinnedTerms: () => void
   onSummarizeRecentContext: () => void
-  onSwitchToSingleTurnMode: () => void
+  onOpenArchive: () => void
+  onDismissSaveNotice: () => void
 }
 
 export function InterpreterBriefingPanel({
+  panelMode,
   activeTurn,
+  activeCheckpoint,
   turnsCount,
   contextBriefing,
   isGeneratingContextBriefing,
+  isGeneratingCheckpoint,
   pinnedTerms,
   hasApiKey,
+  saveNotice,
   mobileHidden,
+  onChangePanelMode,
   onTogglePinTerm,
   onClearPinnedTerms,
   onSummarizeRecentContext,
-  onSwitchToSingleTurnMode,
+  onOpenArchive,
+  onDismissSaveNotice,
 }: InterpreterBriefingPanelProps) {
-  const [viewMode, setViewMode] = useState<'single' | 'context'>('single')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [copiedScript, setCopiedScript] = useState(false)
+  const [showRawCheckpointSource, setShowRawCheckpointSource] = useState(false)
 
-  const effectiveMode = viewMode === 'context' && contextBriefing ? 'context' : 'single'
+  const effectiveMode: RightPanelMode =
+    panelMode === 'checkpoint' && activeCheckpoint
+      ? 'checkpoint'
+      : panelMode === 'context' && contextBriefing
+        ? 'context'
+        : 'single'
+
   const briefing = effectiveMode === 'context' ? contextBriefing : activeTurn?.briefing || null
-  const activeDirection: Direction = activeTurn?.direction || 'EN_TO_KO'
 
-  // Combine AI keyTerms with instant 0ms glossary matches while AI is still generating
-  const displayTerms: KeyTermPair[] = briefing?.keyTerms?.length
-    ? briefing.keyTerms
-    : activeTurn?.instantGlossaryHits || []
+  const activeDirection: Direction =
+    effectiveMode === 'checkpoint' && activeCheckpoint
+      ? activeCheckpoint.direction
+      : activeTurn?.direction || 'EN_TO_KO'
+
+  const displayTerms: KeyTermPair[] =
+    effectiveMode === 'checkpoint' && activeCheckpoint
+      ? activeCheckpoint.keyTerms
+      : briefing?.keyTerms?.length
+        ? briefing.keyTerms
+        : activeTurn?.instantGlossaryHits || []
 
   const isPinned = (term: KeyTermPair) =>
     pinnedTerms.some(
@@ -64,48 +104,89 @@ export function InterpreterBriefingPanel({
     window.setTimeout(() => setCopiedKey(null), 1300)
   }
 
+  const handleCopyCheckpointAll = (ckpt: CheckpointSummaryRecord) => {
+    void navigator.clipboard.writeText(formatCheckpointToTxt(ckpt))
+    setCopiedScript(true)
+    window.setTimeout(() => setCopiedScript(false), 1600)
+  }
+
   return (
     <section
       className={`desk-pane ${mobileHidden ? 'mobile-hidden' : ''}`}
       id="pane-interpreter-briefing"
-      aria-label="통역사 핵심 요약 및 반대 언어 단어장"
+      aria-label="통역사 핵심 요약 및 중간 정리 통역문"
     >
       <div className="pane-header">
         <div className="pane-title-group">
-          <h2>통역 핵심 브리핑 & 반대 언어 단어장</h2>
-          <span className="pane-caption">그대로 읽지 않고 내 말로 통역하기 위한 요약 노트</span>
+          <h2>통역 핵심 브리핑 & 중간 정리 통역문</h2>
+          <span className="pane-caption">
+            [중간 정리] 실행 시 대화 요약·통역 제시문 표시 및 PC .txt 자동 저장
+          </span>
         </div>
 
         <div className="pane-actions">
           <button
+            id="btn-briefing-checkpoint"
+            type="button"
+            className={`mini-btn ${effectiveMode === 'checkpoint' ? 'active' : ''}`}
+            disabled={!activeCheckpoint}
+            onClick={() => onChangePanelMode('checkpoint')}
+            title="가장 최근에 생성하거나 불러온 중간 정리 통역문을 봅니다"
+          >
+            <FileCheck2 size={12} />
+            <span>중간 정리</span>
+          </button>
+
+          <button
             id="btn-briefing-single"
             type="button"
             className={`mini-btn ${effectiveMode === 'single' ? 'active' : ''}`}
-            onClick={() => {
-              setViewMode('single')
-              onSwitchToSingleTurnMode()
-            }}
+            onClick={() => onChangePanelMode('single')}
           >
             <span>선택 발화</span>
           </button>
+
           <button
             id="btn-briefing-context"
             type="button"
             className={`mini-btn ${effectiveMode === 'context' ? 'active' : ''}`}
             disabled={turnsCount < 2 || !hasApiKey || isGeneratingContextBriefing}
             onClick={() => {
-              setViewMode('context')
+              onChangePanelMode('context')
               onSummarizeRecentContext()
             }}
             title="최근 3개 발화를 하나의 흐름으로 묶어 요약합니다"
           >
             <Layers size={12} />
-            <span>{isGeneratingContextBriefing ? '종합 중...' : '최근 흐름 종합'}</span>
+            <span>{isGeneratingContextBriefing ? '종합 중...' : '최근 흐름'}</span>
           </button>
         </div>
       </div>
 
       <div className="briefing-scroll">
+        {saveNotice && (
+          <div
+            className="status-banner ok"
+            style={{
+              marginBottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <span>{saveNotice}</span>
+            <button
+              type="button"
+              onClick={onDismissSaveNotice}
+              style={{ fontWeight: 700, flexShrink: 0 }}
+              aria-label="알림 닫기"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         {/* Pinned Quick-Glance Vocabulary Board */}
         {pinnedTerms.length > 0 && (
           <div className="pinned-strip" aria-label="고정해둔 핵심 통역 단어">
@@ -140,22 +221,202 @@ export function InterpreterBriefingPanel({
           </div>
         )}
 
-        {!activeTurn && !briefing ? (
+        {isGeneratingCheckpoint && (
+          <div className="briefing-section" style={{ borderStyle: 'dashed' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+              <Sparkles size={16} />
+              <span>화자의 누적 대화를 요약하고 실전 통역 전달문을 정리하고 있습니다...</span>
+            </div>
+          </div>
+        )}
+
+        {/* ====================================================================
+            MODE A: 중간 정리 (Speaker Dialogue Summary + Suggested Interpretation)
+            ==================================================================== */}
+        {effectiveMode === 'checkpoint' && activeCheckpoint ? (
+          <>
+            <div className="briefing-section checkpoint-highlight-card">
+              <div className="section-eyebrow">
+                <span className="eyebrow-label">
+                  <FileCheck2 size={14} />
+                  중간 정리 ·{' '}
+                  {activeCheckpoint.direction === 'EN_TO_KO'
+                    ? '영어 발화 요약 & 한국어 통역 제시문'
+                    : '한국어 발화 요약 & 영어 통역 제시문'}
+                </span>
+
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="mini-btn"
+                    onClick={() => downloadCheckpointTxtFile(activeCheckpoint)}
+                    title="내 PC에 .txt 파일로 저장"
+                  >
+                    <Download size={12} />
+                    <span>.txt 저장</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="mini-btn"
+                    onClick={() => handleCopyCheckpointAll(activeCheckpoint)}
+                  >
+                    {copiedScript ? <Check size={12} /> : <Copy size={12} />}
+                    <span>{copiedScript ? '복사됨' : '전체 복사'}</span>
+                  </button>
+                  <button type="button" className="mini-btn" onClick={onOpenArchive}>
+                    <FolderOpen size={12} />
+                    <span>보관함</span>
+                  </button>
+                </div>
+              </div>
+
+              <h3 className="briefing-headline">{activeCheckpoint.headline}</h3>
+
+              {/* 1) 화자 대화 핵심 요약 */}
+              <div style={{ marginBottom: 14 }}>
+                <div className="sub-eyebrow">1. 화자 대화 핵심 요약</div>
+                <ol className="bullet-notes-list">
+                  {activeCheckpoint.speakerSummaryBullets.map((line, i) => (
+                    <li key={i} className="bullet-note-item">
+                      <span className="bullet-num">{i + 1}</span>
+                      <div className="bullet-body">
+                        <div className="bullet-ko">{line}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* 2) 제시된 통역 내용 (Suggested Interpretation Delivery) */}
+              <div
+                className={`suggested-script-card ${
+                  activeCheckpoint.direction === 'EN_TO_KO' ? 'dir-en' : 'dir-ko'
+                }`}
+              >
+                <div className="suggested-script-header">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <MessageSquareQuote size={15} />
+                    {activeCheckpoint.direction === 'EN_TO_KO'
+                      ? '2. 제시된 한국어 통역 내용 (전달문)'
+                      : '2. Suggested English Interpretation (통역 전달문)'}
+                  </span>
+                </div>
+                <div className="suggested-script-body">
+                  {activeCheckpoint.suggestedInterpretation}
+                </div>
+              </div>
+
+              {activeCheckpoint.keyFigures.length > 0 && (
+                <div className="figures-row" aria-label="놓치면 안 되는 수치 및 고유명사">
+                  {activeCheckpoint.keyFigures.map((fig, idx) => (
+                    <div key={idx} className="figure-chip">
+                      <Hash size={12} style={{ alignSelf: 'center', opacity: 0.6 }} />
+                      <strong>{fig.figure}</strong>
+                      <span>{fig.context}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Expandable Raw Source Transcript */}
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="mini-btn"
+                  onClick={() => setShowRawCheckpointSource((v) => !v)}
+                >
+                  {showRawCheckpointSource ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  <span>
+                    {showRawCheckpointSource ? '원문 발화 접기' : '요약된 원문 발화 확인하기'}
+                  </span>
+                </button>
+                {showRawCheckpointSource && (
+                  <pre className="raw-source-preview">{activeCheckpoint.sourceTranscript}</pre>
+                )}
+              </div>
+            </div>
+
+            {/* Key Vocabulary Section for Checkpoint */}
+            {displayTerms.length > 0 && (
+              <div className="briefing-section">
+                <div className="section-eyebrow">
+                  <span className="eyebrow-label">
+                    <Sparkles size={14} />
+                    {activeDirection === 'EN_TO_KO'
+                      ? '반대 언어 핵심 단어 (English → 한국어 통역어)'
+                      : '반대 언어 핵심 단어 (한국어 → English 통역어)'}
+                  </span>
+                </div>
+                <div className="vocab-grid">
+                  {displayTerms.map((term, idx) => {
+                    const pinned = isPinned(term)
+                    return (
+                      <div
+                        key={`${term.source}-${term.target}-${idx}`}
+                        className={`vocab-card ${
+                          activeDirection === 'EN_TO_KO' ? 'dir-en' : 'dir-ko'
+                        } ${term.fromGlossary ? 'glossary-verified' : ''}`}
+                      >
+                        <div>
+                          <div className="vocab-top">
+                            <div
+                              className="vocab-target"
+                              onClick={() => handleCopyTerm(term)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {term.fromGlossary && <span className="ib-tag">IB 공식</span>}
+                              {term.target}
+                            </div>
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              <button
+                                type="button"
+                                className="pin-icon-btn"
+                                onClick={() => handleCopyTerm(term)}
+                              >
+                                {copiedKey === term.target ? (
+                                  <Check size={13} />
+                                ) : (
+                                  <Copy size={13} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className={`pin-icon-btn ${pinned ? 'pinned' : ''}`}
+                                onClick={() => onTogglePinTerm(term)}
+                              >
+                                <Pin size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="vocab-source">원문: {term.source}</div>
+                        </div>
+                        {term.nuance && <div className="vocab-nuance">{term.nuance}</div>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        ) : !activeTurn && !briefing ? (
           <div className="empty-desk-state">
             <div className="empty-desk-icon">
               <ListChecks size={22} />
             </div>
-            <h3>핵심 논지 구조화 & 반대 언어 어휘 카드</h3>
+            <h3>중간 정리 통역문 & 반대 언어 어휘 보드</h3>
             <p>
-              발화가 시작되면 <strong>① 말해야 할 핵심 논지 요약</strong>,{' '}
-              <strong>② 입으로 바로 꺼내 쓸 반대 언어 표현 단서</strong>,{' '}
-              <strong>③ 핵심 단어(원어 ↔ 반대 언어) 및 수치 체크</strong>가 이곳에 정리됩니다.
-              좌측 상단의 <strong>리허설 샘플</strong> 버튼을 눌러 실제 화면 구성을 바로 확인해 보세요.
+              화자가 말하는 동안 실시간 요약과 어휘가 표시되며, 상단{' '}
+              <strong>[중간 정리]</strong> 버튼을 누르면 그 사람의 대화를 깔끔하게 요약한{' '}
+              <strong>실전 통역 전달문</strong>이 제시됨과 동시에 자동 저장 및 내 PC{' '}
+              <code>.txt</code> 파일 다운로드가 실행됩니다. 이전에 저장한 파일은 우측 상단{' '}
+              <strong>[기록 불러오기]</strong>에서 언제든 다시 열 수 있습니다.
             </p>
           </div>
         ) : (
+          /* ====================================================================
+             MODE B: Single Utterance / Rolling Context Live Note
+             ==================================================================== */
           <>
-            {/* Section 1: Structured Core Points for Speaking */}
             <div className="briefing-section">
               <div className="section-eyebrow">
                 <span className="eyebrow-label">
@@ -168,7 +429,10 @@ export function InterpreterBriefingPanel({
                 </span>
 
                 {activeTurn?.isSummarizing ? (
-                  <span className="intent-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span
+                    className="intent-tag"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
                     <Sparkles size={12} /> AI 핵심 정리 중...
                   </span>
                 ) : briefing?.intentTag ? (
@@ -210,11 +474,13 @@ export function InterpreterBriefingPanel({
                   )}
                 </>
               ) : (
-                <div style={{ fontSize: '0.88rem', color: 'var(--ink-secondary)', lineHeight: 1.6 }}>
+                <div
+                  style={{ fontSize: '0.88rem', color: 'var(--ink-secondary)', lineHeight: 1.6 }}
+                >
                   {activeTurn?.isSummarizing ? (
                     '발화 내용을 통역사 노트로 구조화하고 있습니다...'
                   ) : hasApiKey ? (
-                    '문장이 마무리되거나 상단 [구간 완료] 버튼을 누르면 즉시 핵심 요점이 정리됩니다.'
+                    '문장이 마무리되거나 상단 [중간 정리] 버튼을 누르면 즉시 요약과 통역 내용이 제시됩니다.'
                   ) : (
                     '우측 상단 [API 키 연동]에서 Gemini API 키를 저장하면 실시간 AI 핵심 요약이 활성화됩니다.'
                   )}
@@ -222,7 +488,6 @@ export function InterpreterBriefingPanel({
               )}
             </div>
 
-            {/* Section 2: Opposite-Language Key Vocabulary & IB Terms */}
             <div className="briefing-section">
               <div className="section-eyebrow">
                 <span className="eyebrow-label">
@@ -243,9 +508,9 @@ export function InterpreterBriefingPanel({
                     return (
                       <div
                         key={`${term.source}-${term.target}-${idx}`}
-                        className={`vocab-card ${activeDirection === 'EN_TO_KO' ? 'dir-en' : 'dir-ko'} ${
-                          term.fromGlossary ? 'glossary-verified' : ''
-                        }`}
+                        className={`vocab-card ${
+                          activeDirection === 'EN_TO_KO' ? 'dir-en' : 'dir-ko'
+                        } ${term.fromGlossary ? 'glossary-verified' : ''}`}
                       >
                         <div>
                           <div className="vocab-top">
@@ -266,7 +531,11 @@ export function InterpreterBriefingPanel({
                                 onClick={() => handleCopyTerm(term)}
                                 title="표현 복사"
                               >
-                                {copiedKey === term.target ? <Check size={13} /> : <Copy size={13} />}
+                                {copiedKey === term.target ? (
+                                  <Check size={13} />
+                                ) : (
+                                  <Copy size={13} />
+                                )}
                               </button>
                               <button
                                 type="button"
@@ -288,7 +557,9 @@ export function InterpreterBriefingPanel({
                   })}
                 </div>
               ) : (
-                <div style={{ fontSize: '0.85rem', color: 'var(--ink-tertiary)', lineHeight: 1.55 }}>
+                <div
+                  style={{ fontSize: '0.85rem', color: 'var(--ink-tertiary)', lineHeight: 1.55 }}
+                >
                   발화 속 IB 교육과정 용어는 즉시(0초) 매칭되며, 문맥상 핵심 동사·명사 표현은 AI가
                   반대 언어로 추출해 표시합니다.
                 </div>

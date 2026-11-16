@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { findInstantGlossaryMatches, type SampleScenario } from '../data/ibGlossary'
 import { SAMPLE_OFFLINE_BRIEFINGS } from '../data/sampleBriefings'
 import {
+  generateCheckpointInterpretation,
   generateTurnBriefing,
   streamLiveTranslation,
   transcribeAudioChunkWithGemini,
 } from '../services/geminiService'
 import type {
   AudioEngineMode,
+  CheckpointSummaryRecord,
   Direction,
   GlossaryItem,
   InterpreterBriefing,
@@ -74,6 +76,7 @@ interface UseSpeechInterpreterOptions {
   audioEngine: AudioEngineMode
   enableInterimTranslation: boolean
   glossary: GlossaryItem[]
+  onCheckpointReady?: (record: CheckpointSummaryRecord) => void
 }
 
 export function useSpeechInterpreter({
@@ -82,6 +85,7 @@ export function useSpeechInterpreter({
   audioEngine,
   enableInterimTranslation,
   glossary,
+  onCheckpointReady,
 }: UseSpeechInterpreterOptions) {
   const [direction, setDirectionState] = useState<Direction>('EN_TO_KO')
   const [isListening, setIsListening] = useState(false)
@@ -92,6 +96,7 @@ export function useSpeechInterpreter({
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null)
   const [contextBriefing, setContextBriefing] = useState<InterpreterBriefing | null>(null)
   const [isGeneratingContextBriefing, setIsGeneratingContextBriefing] = useState(false)
+  const [isGeneratingCheckpoint, setIsGeneratingCheckpoint] = useState(false)
 
   // Mutable refs for real-time speech callbacks
   const directionRef = useRef<Direction>(direction)
@@ -99,6 +104,9 @@ export function useSpeechInterpreter({
   const modelRef = useRef(selectedModel)
   const glossaryRef = useRef(glossary)
   const interimTransEnabledRef = useRef(enableInterimTranslation)
+  const turnsRef = useRef<UtteranceTurn[]>(turns)
+  const onCheckpointReadyRef = useRef(onCheckpointReady)
+  const lastCheckpointAtRef = useRef(0)
 
   useEffect(() => {
     directionRef.current = direction
@@ -106,7 +114,17 @@ export function useSpeechInterpreter({
     modelRef.current = selectedModel
     glossaryRef.current = glossary
     interimTransEnabledRef.current = enableInterimTranslation
-  }, [apiKey, direction, enableInterimTranslation, glossary, selectedModel])
+    turnsRef.current = turns
+    onCheckpointReadyRef.current = onCheckpointReady
+  }, [
+    apiKey,
+    direction,
+    enableInterimTranslation,
+    glossary,
+    onCheckpointReady,
+    selectedModel,
+    turns,
+  ])
 
   const shouldListenRef = useRef(false)
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
@@ -822,11 +840,126 @@ export function useSpeechInterpreter({
     }
   }, [turns])
 
+  /**
+   * [중간 정리] 현재 화자가 지금까지 말한 발화들을 묶어 요약하고 통역 제시문을 생성합니다.
+   */
+  const createSpeakerCheckpoint = useCallback(async (): Promise<CheckpointSummaryRecord | null> => {
+    const pendingTurnId = activeTurnIdRef.current
+    const pendingLiveText = `${committedTurnTextRef.current} ${currentInterimTextRef.current}`
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (pendingTurnId) {
+      finalizeCurrentTurn()
+    }
+
+    const effectiveTurns = turnsRef.current
+      .map((t) =>
+        t.id === pendingTurnId && pendingLiveText
+          ? {
+              ...t,
+              sourceText: pendingLiveText,
+              isInterim: false,
+            }
+          : t
+      )
+      .filter((t) => t.sourceText.trim().length > 0)
+
+    if (effectiveTurns.length === 0) {
+      setMicError('중간 정리할 발화 기록이 아직 없습니다.')
+      return null
+    }
+
+    const anchorTurn = effectiveTurns[effectiveTurns.length - 1]
+    const speakerDir = anchorTurn.direction
+
+    // Collect contiguous recent turns of this speaker since the previous checkpoint
+    let speakerTurns: UtteranceTurn[] = []
+    for (let i = effectiveTurns.length - 1; i >= 0; i--) {
+      const candidate = effectiveTurns[i]
+      if (candidate.direction !== speakerDir) break
+      if (candidate.createdAt <= lastCheckpointAtRef.current) break
+      speakerTurns.unshift(candidate)
+    }
+
+    // If all turns were already before lastCheckpointAt (e.g., user clicked 중간 정리 again on existing dialogue),
+    // collect all contiguous latest turns of this speaker so the button always produces a summary.
+    if (speakerTurns.length === 0) {
+      for (let i = effectiveTurns.length - 1; i >= 0; i--) {
+        const candidate = effectiveTurns[i]
+        if (candidate.direction !== speakerDir) break
+        speakerTurns.unshift(candidate)
+      }
+    }
+
+    const combinedSource = speakerTurns.map((t) => t.sourceText.trim()).join('\n')
+    lastCheckpointAtRef.current = Date.now()
+
+    setIsGeneratingCheckpoint(true)
+    setMicError(null)
+    try {
+      let record: CheckpointSummaryRecord
+
+      if (apiKeyRef.current.trim()) {
+        record = await generateCheckpointInterpretation({
+          apiKey: apiKeyRef.current,
+          selectedModel: modelRef.current,
+          direction: speakerDir,
+          sourceTranscript: combinedSource,
+          turnCount: speakerTurns.length,
+          glossary: glossaryRef.current,
+        })
+      } else {
+        // Offline rehearsal fallback when API key is not connected yet
+        const offlineTranslations = speakerTurns
+          .map((t) => t.translatedText.trim())
+          .filter(Boolean)
+          .join(' ')
+        const offlineBullets = speakerTurns.flatMap(
+          (t) => t.briefing?.bulletPoints.map((b) => b.koSummary) || []
+        )
+        const offlineFigures = speakerTurns.flatMap((t) => t.briefing?.keyFigures || [])
+        const hits = findInstantGlossaryMatches(combinedSource, speakerDir, glossaryRef.current)
+        const existingTerms = speakerTurns.flatMap((t) => t.briefing?.keyTerms || [])
+        const mergedTerms = existingTerms.length > 0 ? existingTerms : hits
+
+        record = {
+          id: `ckpt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          createdAt: Date.now(),
+          direction: speakerDir,
+          headline:
+            speakerTurns[speakerTurns.length - 1]?.briefing?.headline ||
+            `${speakerDir === 'EN_TO_KO' ? '평가단 영어 발화' : '학교측 한국어 발화'} 중간 정리`,
+          speakerSummaryBullets:
+            offlineBullets.length > 0
+              ? offlineBullets.slice(0, 5)
+              : speakerTurns.map((t) => t.sourceText.slice(0, 90)),
+          suggestedInterpretation:
+            offlineTranslations ||
+            '(Gemini API 키 연동 시 전체 대화 맥락을 종합한 자연스러운 구어 통역 전달문이 자동 생성됩니다.)',
+          keyTerms: mergedTerms.slice(0, 8),
+          keyFigures: offlineFigures.slice(0, 6),
+          sourceTranscript: combinedSource,
+          turnCount: speakerTurns.length,
+        }
+      }
+
+      onCheckpointReadyRef.current?.(record)
+      return record
+    } catch (err) {
+      setMicError(err instanceof Error ? err.message : '중간 정리 생성 중 오류가 발생했습니다.')
+      return null
+    } finally {
+      setIsGeneratingCheckpoint(false)
+    }
+  }, [finalizeCurrentTurn])
+
   const clearAllTurns = useCallback(() => {
     finalizeCurrentTurn()
     setTurns([])
     setSelectedTurnId(null)
     setContextBriefing(null)
+    lastCheckpointAtRef.current = 0
   }, [finalizeCurrentTurn])
 
   // Cleanup on unmount
@@ -850,10 +983,12 @@ export function useSpeechInterpreter({
     contextBriefing,
     setContextBriefing,
     isGeneratingContextBriefing,
+    isGeneratingCheckpoint,
     toggleListening,
     stopListening,
     switchDirection,
     finalizeCurrentTurn,
+    createSpeakerCheckpoint,
     submitManualOrSampleUtterance,
     runBriefingForTurn,
     summarizeRecentContext,

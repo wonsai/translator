@@ -50,6 +50,20 @@ export interface InterpreterBriefing {
   scopeCount: number
 }
 
+export interface CheckpointSummaryRecord {
+  id: string
+  createdAt: number
+  direction: Direction
+  headline: string
+  speakerSummaryBullets: string[]
+  suggestedInterpretation: string
+  keyTerms: KeyTermPair[]
+  keyFigures: KeyFigureItem[]
+  sourceTranscript: string
+  turnCount: number
+  importedFileName?: string
+}
+
 export interface UtteranceTurn {
   id: string
   direction: Direction
@@ -78,4 +92,5 @@ export interface AppSettings {
   theme: 'light' | 'dark'
   fontScale: FontScaleLevel
   enableInterimTranslation: boolean
+  autoDownloadCheckpointTxt: boolean
 }
